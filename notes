@@ -1,0 +1,138 @@
+def avg_seq(g, file_name, ratio, algo):
+        start_time_ratio = time.time()
+        aupr = 0
+        auc = 0
+        avg_prec = 0
+        loop = 50
+        ratio = round(ratio, 1)
+        graph_original = g
+        print("avg sequential called for algo - " + str(algo) + " ratio - " + str(ratio))
+
+        for single_iter in range(loop):
+            print("old number of edges - " + str(len(graph_original.edges)) + " for ratio - " + str(ratio))
+            adj_original = nx.adjacency_matrix(graph_original).todense()
+            starttime = time.time()
+            edges = np.array(list(graph_original.edges))
+            nodes = list(range(len(adj_original)))
+            np.random.shuffle(edges)
+            edges_original = edges
+            edges_train = np.array(edges_original, copy=True)
+            np.random.shuffle(edges_train)
+            edges_train = random.sample(list(edges_train), int(ratio * (len(edges_train))))
+            graph_train = nx.Graph()
+            graph_train.add_nodes_from(nodes)
+            graph_train.add_edges_from(edges_train)
+            adj_train = nx.adjacency_matrix(graph_train).todense()
+            graph_test = nx.Graph()
+            graph_test.add_nodes_from(nodes)
+            graph_test.add_edges_from(edges_original)
+            graph_test.remove_edges_from(edges_train)
+            print("new number of edges - " + str(len(graph_train.edges)) + " for ratio - " + str(ratio))
+
+            if algo == 'feature_comm_opti':
+                m=5
+                t = "mit"
+                prob_mat = features_comm_opti(m, t)
+
+            prob_mat = normalize(prob_mat)
+
+            # Define sequence length for LSTM
+            seq_length = 10  # You may adjust this as needed
+
+            # Reshape prob_mat into sequences for LSTM
+            sequences = []
+            labels = []
+            for i in range(0, prob_mat.shape[0] - seq_length + 1):
+                sequences.append(prob_mat[i:i+seq_length, :])
+                # Check if edge exists between the nodes represented by the sequence
+                if graph_train.has_edge(i, i+seq_length-1):
+                    labels.append(1)
+                else:
+                    labels.append(0)
+
+            sequences = np.array(sequences)
+            labels = np.array(labels)
+
+            # Split the data into training and testing sets
+            X_train, X_test, y_train, y_test = train_test_split(sequences, labels, test_size=0.2, random_state=42)
+
+            # Define LSTM model
+            model = Sequential()
+            model.add(LSTM(50, input_shape=(X_train.shape[1], X_train.shape[2])))
+            model.add(Dense(1, activation='sigmoid'))
+            model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+            # Train LSTM model
+            model.fit(X_train, y_train, epochs=10, batch_size=32, verbose=0)
+
+            # Evaluate LSTM model
+            y_pred = model.predict(X_test)
+
+            # Flatten predictions and true labels
+            y_pred_flat = y_pred.flatten()
+            y_test_flat = y_test.flatten()
+
+            endtime = time.time()
+            currentDT = datetime.datetime.now()
+
+            file_all = open('./result_all_elp/current.txt', 'a')
+            text_inside_single = "single algo = " + algo + " file name = " + file_name + \
+                                 " ratio = " + str(ratio) + " time = " + \
+                                 str(endtime - starttime) + " sec date_time = " + str(currentDT) + "\n"
+            file_all.write(text_inside_single)
+            print(text_inside_single)
+            file_all.close()
+            print("Shapes:")
+            print("X_train shape:", X_train.shape)
+            print("y_train shape:", y_train.shape)
+            print("X_test shape:", X_test.shape)
+            print("y_test shape:", y_test.shape)
+
+            print("Unique values in y_train:", np.unique(y_train))
+            print("Unique values in y_test:", np.unique(y_test))
+            # Calculate precision, recall, and AUC if both classes are present
+            if len(np.unique(y_test_flat)) > 1:
+                precision, recall, _ = precision_recall_curve(y_test_flat, y_pred_flat)
+                aupr += np.trapz(precision, recall)
+                auc += roc_auc_score(y_test_flat, y_pred_flat)
+
+            # Calculate average precision regardless of class imbalance
+            avg_prec += average_precision_score(y_test_flat, y_pred_flat)
+
+        # Calculate average AUPR, AUC, and average precision
+        avg_aupr = aupr / loop
+        avg_auc = auc / loop
+        avg_avg_prec = avg_prec / loop
+
+        return avg_aupr, avg_auc, avg_avg_prec
+
+
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Read data from the Excel file
+data_file = 'paper_results.xls'
+df = pd.read_excel(data_file)
+
+# Ensure the columns are correctly named (adjust if necessary)
+# Assuming the Excel file has columns named 'ratio', 'lstm', 'cn', 'aa'
+ratios = df['Ratio']
+lstm_values = df['LSTM']
+cn_values = df['CN']
+aa_values = df['AA']
+
+# Plotting the results
+plt.figure(figsize=(10, 6))
+
+plt.plot(ratios, lstm_values, marker='o', label='LSTM')
+plt.plot(ratios, cn_values, marker='o', label='CN')
+plt.plot(ratios, aa_values, marker='o', label='AA')
+
+plt.xlabel('Ratio')
+plt.ylabel('AUC Value')
+plt.title('AUC Values for Different Features on MIT Dataset')
+plt.legend()
+plt.grid(True)
+plt.show()
