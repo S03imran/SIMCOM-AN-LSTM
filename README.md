@@ -1,5 +1,5 @@
 To run SIMCOM-AN-LSTM use
-  python first.py
+  python simComLSTM.py
 
 first.py calls elp_all_pred_algo.py which calculates the local, global and quasi-local features of the dynamic graph data
 
